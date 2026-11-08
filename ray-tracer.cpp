@@ -104,20 +104,29 @@ Vector3 trace(const Ray& ray, const Scene& scene, int bouncesLeft = MAX_BOUNCES)
 
     // Offset the ray to avoid self-shadowing.
     Vector3 surfaceOrigin = hit.position + hit.normal*EPSILON;
-    Vector3 toLight = lightPosition-surfaceOrigin;
-    Vector3 lightDirection = toLight.normalized();
-    Hit blocker{};
-
-    // Only objects between this point and the light can block it.
-    bool shadow = hitScene({surfaceOrigin, lightDirection}, scene, toLight.length(), blocker);
+    const int lightSamples = 4;
+    const float lightSize = 1.2f;
     Vector3 result = hit.color*0.14f;
-    if (!shadow) {
-        float diffuse = std::max(0.0f, hit.normal.dot(lightDirection));
-        result = result + hit.color*(0.8f*diffuse);
 
-        Vector3 halfway = (lightDirection-ray.direction).normalized();
-        float specular = diffuse > 0 ? std::pow(std::max(0.0f, hit.normal.dot(halfway)), 48.0f) : 0;
-        result = result + Vector3{1,1,1}*(0.25f*specular);
+    // Average rays to different parts of the light for softer shadows.
+    for (int y=0; y<lightSamples; ++y) {
+        for (int x=0; x<lightSamples; ++x) {
+            Vector3 sample = lightPosition + Vector3{
+                ((x+0.5f)/lightSamples-0.5f)*lightSize, 0,
+                ((y+0.5f)/lightSamples-0.5f)*lightSize};
+            Vector3 toLight = sample-surfaceOrigin;
+            Vector3 lightDirection = toLight.normalized();
+            Hit blocker{};
+            if (hitScene({surfaceOrigin,lightDirection}, scene, toLight.length(), blocker))
+                continue;
+
+            float diffuse = std::max(0.0f, hit.normal.dot(lightDirection));
+            Vector3 halfway = (lightDirection-ray.direction).normalized();
+            float specular = diffuse > 0 ?
+                std::pow(std::max(0.0f, hit.normal.dot(halfway)),48.0f) : 0;
+            Vector3 lighting = hit.color*(0.8f*diffuse) + Vector3{1,1,1}*(0.25f*specular);
+            result = result + lighting*(1.0f/(lightSamples*lightSamples));
+        }
     }
     float reflection = std::max(0.0f, std::min(hit.reflectivity, 1.0f));
     if (reflection > 0 && bouncesLeft > 0) {
